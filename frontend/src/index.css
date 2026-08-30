@@ -1,0 +1,92 @@
+/* 社内オペレーター向けの管理画面。装飾より一覧性と操作の速さを優先する。 */
+
+:root {
+  --color-text: #1a1a1a;
+  --color-muted: #666;
+  --color-border: #ddd;
+  --color-bg: #fff;
+  --color-accent: #0f62fe;
+  --color-error: #c62828;
+
+  font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  /* 業務端末は1日中見るので、行間はやや広めに取る */
+  line-height: 1.7;
+}
+
+.layout {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 2rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header h1 {
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+.header nav a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.main {
+  padding: 1.5rem 0;
+}
+
+.status {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0;
+}
+
+.status dt {
+  color: var(--color-muted);
+}
+
+.status dd {
+  margin: 0;
+}
+
+.error {
+  color: var(--color-error);
+  border-left: 3px solid var(--color-error);
+  padding-left: 0.75rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.9em;
+}

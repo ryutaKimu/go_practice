@@ -1,0 +1,15 @@
+# ホットリロード設定（開発用）。ソース変更を検知して自動で再ビルド・再起動する。
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/api ./cmd/api"
+  bin = "./tmp/api"
+  include_ext = ["go", "sql"]
+  exclude_dir = ["tmp", "migrations"]
+  exclude_regex = ["_test\\.go"]
+  delay = 500
+  stop_on_error = true
+
+[log]
+  time = true

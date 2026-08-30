@@ -1,0 +1,311 @@
+openapi: 3.1.0
+
+# API契約の正。設計方針は docs/04-api-spec.md を参照。
+# Sprint 0 時点では、実装済みの監視系と、中核である注文登録のみを定義している。
+# 残りは各チケットの実装時にこのファイルへ追記する。
+
+info:
+  title: ミナトマート 在庫・注文管理API
+  version: 0.1.0
+  description: |
+    在庫と注文を扱う中核API。既存PHPモノリスから段階的に切り出す。
+    最優先要件は R-01「在庫の売り越しをゼロにする」。
+
+servers:
+  - url: http://localhost:8080
+    description: ローカル開発環境
+
+tags:
+  - name: monitoring
+    description: 死活監視。認証不要
+  - name: orders
+    description: 注文
+  - name: inventory
+    description: 在庫
+
+paths:
+  /healthz:
+    get:
+      tags: [monitoring]
+      summary: 死活確認
+      description: |
+        プロセスが生きているかだけを返す。依存先（DB）は確認しない。
+        DB障害時にタスクを再起動しても復旧しないため。
+      security: []
+      responses:
+        "200":
+          description: 稼働中
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version]
+                properties:
+                  status: { type: string, example: ok }
+                  version: { type: string, example: "1.4.2" }
+
+  /readyz:
+    get:
+      tags: [monitoring]
+      summary: 受付可能確認
+      description: DB接続を含めてリクエストを受けられる状態かを返す。ALBの振り分け判定に使う。
+      security: []
+      responses:
+        "200":
+          description: 受付可能
+        "503":
+          description: 依存先に到達できない
+
+  /api/v1/orders:
+    post:
+      tags: [orders]
+      summary: 注文登録
+      description: |
+        在庫引当と注文作成を単一トランザクションで実行する（FR-301）。
+        引当可能数が足りないSKUが1件でもあれば、注文全体を作成せず 409 を返す。
+
+        `Idempotency-Key` ヘッダは必須。同一キーでの再送は注文を重複作成せず、
+        初回と同じ結果を 201 で返す（FR-302 / ADR-0003）。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: クライアントが生成する一意な値（UUID推奨）。サーバー側では生成しない。
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaceOrderRequest" }
+      responses:
+        "201":
+          description: |
+            作成成功。再送だった場合も 201 を返し、`Idempotent-Replay: true` を付ける。
+          headers:
+            Idempotent-Replay:
+              description: 再送により既存の注文を返した場合に true
+              schema: { type: boolean }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: 在庫不足
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: INSUFFICIENT_STOCK
+                  message: 在庫が不足しています
+                  details:
+                    - skuCode: MM-TOWEL-BL-M
+                      requested: 2
+                      available: 1
+
+  /api/v1/orders/{orderId}/cancel:
+    post:
+      tags: [orders]
+      summary: 注文キャンセル
+      description: |
+        未出荷の注文をキャンセルし、引当を解除する（FR-307）。
+        出荷済（shipped）の注文はキャンセルできず 409 を返す。
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  description: キャンセル理由。追跡可能性(R-02)のため必須。
+                  example: 顧客都合
+      responses:
+        "200":
+          description: キャンセル成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 現在のステータスからはキャンセルできない
+
+  /api/v1/inventory/{skuId}/{locationId}:
+    get:
+      tags: [inventory]
+      summary: 在庫照会
+      description: SKU×拠点の実在庫数・引当済数・引当可能数を返す（FR-201）。
+      parameters:
+        - name: skuId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: locationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 在庫情報
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InventoryItem" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 職員はJWT、外部システムはAPIキーを同じヘッダで送る。
+
+  schemas:
+    Money:
+      type: object
+      description: 金額。日本円のみのため amount は「円」の整数（docs/03-erd.md 2.1）。
+      required: [amount, currency]
+      properties:
+        amount: { type: integer, format: int64, example: 1480 }
+        currency: { type: string, enum: [JPY] }
+
+    PlaceOrderRequest:
+      type: object
+      required: [channelCode, locationCode, customer, shippingAddress, lines]
+      properties:
+        channelCode:
+          type: string
+          description: 販売チャネル。設定で追加可能なため enum にしない（FR-401 / R-04）。
+          example: EC_OWN
+        locationCode:
+          type: string
+          description: 出荷元拠点。拠点をまたぐ引当は行わない。
+          example: WH-TOKYO
+        customer: { $ref: "#/components/schemas/Customer" }
+        shippingAddress: { $ref: "#/components/schemas/Address" }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuCode, quantity]
+            properties:
+              skuCode: { type: string, example: MM-TOWEL-BL-M }
+              quantity: { type: integer, minimum: 1, example: 2 }
+
+    Order:
+      type: object
+      required: [id, orderNumber, status, channelCode, totalAmount, lines, placedAt]
+      properties:
+        id: { type: string, format: uuid }
+        orderNumber: { type: string, example: MM-20260601-000123 }
+        status:
+          type: string
+          enum: [pending, allocated, shipped, cancelled]
+          description: 遷移可能な経路は docs/02-domain-model.md 4章の図を参照。
+        channelCode: { type: string, example: EC_OWN }
+        locationCode: { type: string, example: WH-TOKYO }
+        totalAmount: { $ref: "#/components/schemas/Money" }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              skuCode:
+                type: string
+                description: 注文時点のスナップショット。マスタが変わっても変化しない。
+              quantity: { type: integer }
+              unitPrice: { $ref: "#/components/schemas/Money" }
+        placedAt: { type: string, format: date-time }
+
+    Customer:
+      type: object
+      description: 個人情報を含む。ログへの出力を禁止する(NFR-06)。
+      required: [name]
+      properties:
+        name: { type: string, example: 山田 太郎 }
+        email: { type: string, format: email }
+        phone: { type: string, example: "090-1234-5678" }
+
+    Address:
+      type: object
+      description: 個人情報を含む。
+      required: [postalCode, prefecture, city, line1]
+      properties:
+        postalCode: { type: string, example: "150-0001" }
+        prefecture: { type: string, example: 東京都 }
+        city: { type: string, example: 渋谷区 }
+        line1: { type: string, example: 神宮前1-2-3 }
+        line2: { type: string, example: サンプルマンション101 }
+
+    InventoryItem:
+      type: object
+      required: [skuCode, locationCode, onHand, reserved, available]
+      properties:
+        skuCode: { type: string, example: MM-TOWEL-BL-M }
+        locationCode: { type: string, example: WH-TOKYO }
+        onHand:
+          type: integer
+          description: 実在庫数。倉庫に物理的に存在する数量。
+          example: 10
+        reserved:
+          type: integer
+          description: 引当済数。注文に確保済みだが未出庫の数量。
+          example: 3
+        available:
+          type: integer
+          description: 引当可能数（onHand - reserved）。新規注文が引き当てられる数量。
+          example: 7
+
+    Error:
+      type: object
+      description: 全エラーレスポンス共通の形式（docs/05-architecture.md 5章）。
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - FORBIDDEN
+                - INSUFFICIENT_STOCK
+                - INVALID_STATUS_TRANSITION
+                - INTERNAL_ERROR
+            message:
+              type: string
+              description: 利用者向けのメッセージ。内部情報は含めない。
+            details:
+              type: array
+              items: { type: object }
+
+  responses:
+    ValidationError:
+      description: 入力内容に誤りがある
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: 対象が見つからない
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+security:
+  - bearerAuth: []

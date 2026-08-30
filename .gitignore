@@ -1,0 +1,19 @@
+# Go
+backend/tmp/
+backend/coverage.out
+backend/api
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# 環境ごとの設定。認証情報を含みうるのでコミットしない
+.env
+.env.local
+*.local
+
+# エディタ・OS
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同じPRに新しいpushが来たら前のジョブを止める。CI待ちの列を無駄に伸ばさないため。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: バックエンド（テスト・lint）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: backend/go.sum
+
+      - name: go.mod が最新か確認
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum \
+            || (echo "::error::go mod tidy の結果が未コミットです" && exit 1)
+
+      - name: フォーマット確認
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt がかかっていないファイル: $unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: backend
+
+      - name: テスト（レースディテクタ有効）
+        # -race は必須。在庫引当の並行制御(ADR-0002)を扱うため、
+        # データ競合を見逃したまま本番に出すと売り越しに直結する。
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: カバレッジ確認（NFR-08: 70%以上）
+        run: |
+          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print substr($3, 1, length($3)-1)}')
+          echo "カバレッジ: ${total}%"
+          if awk "BEGIN {exit !($total < 70)}"; then
+            echo "::error::カバレッジ ${total}% が基準の70%を下回っています (NFR-08)"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage.out
+
+  migrations:
+    name: マイグレーション（上り下り両方）
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: minato
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: minato_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U minato"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: golang-migrate をインストール
+        run: |
+          curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.linux-amd64.tar.gz \
+            | tar xvz -C /tmp
+          sudo mv /tmp/migrate /usr/local/bin/
+
+      # down が壊れていると本番で切り戻せない（docs/06-operations.md 4.2）。
+      # up だけでなく down も必ずCIで通す。
+      - name: up → down → up を通す
+        env:
+          DB: postgres://minato:ci@localhost:5432/minato_ci?sslmode=disable
+        run: |
+          migrate -path backend/migrations -database "$DB" up
+          migrate -path backend/migrations -database "$DB" down -all
+          migrate -path backend/migrations -database "$DB" up
+
+  frontend:
+    name: フロントエンド（型チェック・lint・ビルド）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
