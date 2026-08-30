@@ -19,8 +19,12 @@ services:
       timeout: 3s
       retries: 20
 
+  # 使い捨てのワンショットジョブ。マイグレーションを適用したら終了する。
+  # `Exited (0)` が正常な最終状態であり、常駐しないのが正しい。
+  # 終了コード0を待って api が起動するので、ここが失敗すれば api も起動しない。
   migrate:
     image: migrate/migrate:v4.18.1
+    restart: "no"
     depends_on:
       db:
         condition: service_healthy

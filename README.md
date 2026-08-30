@@ -32,7 +32,36 @@ docker compose -f deploy/docker-compose.yml up
 | http://localhost:8080/healthz | API 死活確認 |
 | http://localhost:5173 | 管理画面 |
 
-Docker を使わずバックエンドだけ動かす場合:
+### `migrate` コンテナが一覧に出てこない場合
+
+**正常です。** `migrate` はマイグレーションを適用したら終了する使い捨てコンテナで、常駐しません。
+`docker compose ps` は終了済みコンテナを隠すため、`-a` を付けて確認します。
+
+```bash
+docker compose -f deploy/docker-compose.yml ps -a
+# minato-inventory-migrate-1 ... Exited (0)   ← これが正常な状態
+
+docker compose -f deploy/docker-compose.yml logs migrate
+# 1/u init_schema / 2/u seed_master_data、2回目以降は "no change"
+```
+
+`api` は migrate の**正常終了を待ってから**起動する設定なので、
+api が healthy であれば migrate は成功しています。逆に migrate が失敗すれば api は起動しません。
+
+スキーマが入ったかを直接確かめるには:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec db psql -U minato -d minato -c "\dt"
+```
+
+### DBを初期状態に戻す
+
+```bash
+docker compose -f deploy/docker-compose.yml down -v   # -v でボリュームごと削除
+docker compose -f deploy/docker-compose.yml up
+```
+
+### Docker を使わずバックエンドだけ動かす場合
 
 ```bash
 cd backend

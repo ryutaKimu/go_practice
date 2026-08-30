@@ -45,6 +45,9 @@ cd frontend && npm run dev
 
 開発用ログイン: `admin@minatomart.example` / `operator@minatomart.example`（パスワードはいずれも `password123`）
 
+`migrate` はマイグレーション適用後に終了する使い捨てコンテナなので、`Exited (0)` が正常な状態。
+`docker compose ps` には出てこない（`-a` を付けると見える）。詳細は [README.md](README.md)。
+
 ## チケットの進め方
 
 1. [docs/backlog.md](docs/backlog.md) から着手するチケットを選び、状態を `進行中` にする
