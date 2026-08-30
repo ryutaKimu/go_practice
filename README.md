@@ -110,6 +110,7 @@ cd frontend && npm run typecheck && npm run lint
 8. [docs/adr/](docs/adr/) — なぜその判断をしたか
 
 開発規約は [CLAUDE.md](CLAUDE.md)。次にやることは [docs/backlog.md](docs/backlog.md)。
+日々の進捗と気づきは [docs/progress-log.md](docs/progress-log.md)。
 
 ## 進捗
 
