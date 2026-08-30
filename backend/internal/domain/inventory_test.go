@@ -200,6 +200,26 @@ func TestReceive(t *testing.T) {
 	})
 }
 
+func TestInventory_入荷した分は引当できる(t *testing.T) {
+	item := newItem(0, 0)
+	mv, err := item.Receive(20, "PURCHASE")
+	if err != nil {
+		t.Fatalf("Receive err = %v", err)
+	}
+	if mv.ReasonCode != "PURCHASE" {
+		t.Errorf("ReasonCode = %q, want PURCHASE", mv.ReasonCode)
+	}
+
+	if _, err := item.Reserve(5); err != nil {
+		t.Fatalf("注文の引当に失敗: %v", err)
+	}
+
+	if item.OnHand != 20 || item.Reserved != 5 || item.Available() != 15 {
+		t.Fatalf("予約後 = (%d, %d, %d), want (20, 5, 15)", item.OnHand, item.Reserved, item.Available())
+	}
+	assertInvariants(t, item)
+}
+
 func TestAdjust(t *testing.T) {
 	tests := []struct {
 		name       string
