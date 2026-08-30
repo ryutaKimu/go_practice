@@ -13,10 +13,15 @@ type HealthChecker interface {
 type Server struct {
 	db      HealthChecker
 	version string
+	cors    *CORS
 }
 
-func NewServer(db HealthChecker, version string) *Server {
-	return &Server{db: db, version: version}
+func NewServer(db HealthChecker, version string, allowedOrigins []string) *Server {
+	return &Server{
+		db:      db,
+		version: version,
+		cors:    NewCORS(allowedOrigins),
+	}
 }
 
 // Routes はルーティングを組み立てる。Go 1.22+ のパターンルーティングを使い、
@@ -31,7 +36,9 @@ func (s *Server) Routes() http.Handler {
 	// TODO(MIN-011以降): /api/v1 配下の業務エンドポイントを追加する。
 	// 一覧は docs/04-api-spec.md 2章。
 
-	return Chain(mux, RequestID, AccessLog, Recover)
+	// CORS は RequestID より内側に置く。プリフライトにも request_id を振って
+	// ログに残すため（プリフライトが弾かれた場合の調査に要る）。
+	return Chain(mux, RequestID, AccessLog, Recover, s.cors.Middleware)
 }
 
 // handleHealthz はプロセスが生きているかだけを返す。依存先は見ない。

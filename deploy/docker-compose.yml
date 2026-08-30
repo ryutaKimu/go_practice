@@ -50,6 +50,9 @@ services:
       DATABASE_URL: "postgres://minato:minato_local_only@db:5432/minato?sslmode=disable"
       LOG_LEVEL: "debug"
       APP_VERSION: "local"
+      # 管理画面(web)のオリジン。これが無いとブラウザがCORSでレスポンスを弾き、
+      # 画面側には "Failed to fetch" としか出ない。
+      ALLOWED_ORIGINS: "http://localhost:5173"
     ports:
       - "8080:8080"
     volumes:

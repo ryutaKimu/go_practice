@@ -54,6 +54,26 @@ api が healthy であれば migrate は成功しています。逆に migrate �
 docker compose -f deploy/docker-compose.yml exec db psql -U minato -d minato -c "\dt"
 ```
 
+### 管理画面に「APIに接続できません: Failed to fetch」と出る場合
+
+APIが落ちているとは限りません。**CORSの可能性が高い**です。
+`curl` では成功するのにブラウザだけ失敗する場合はこれです。
+
+```bash
+# ブラウザと同じ条件で確認する。Access-Control-Allow-Origin が返るのが正常。
+curl -i -H "Origin: http://localhost:5173" http://localhost:8080/healthz | grep -i access-control
+```
+
+ヘッダが返らない場合、APIの `ALLOWED_ORIGINS` に管理画面のオリジンが入っていません。
+`deploy/docker-compose.yml` の `api` サービスの環境変数を確認してください。
+APIの起動ログにも許可オリジンが出ます。
+
+```bash
+docker compose -f deploy/docker-compose.yml logs api | grep allowed_origins
+```
+
+管理画面のポートを既定（5173）から変えた場合は、`ALLOWED_ORIGINS` も合わせて変更が必要です。
+
 ### DBを初期状態に戻す
 
 ```bash

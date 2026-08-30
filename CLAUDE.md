@@ -117,6 +117,9 @@ cd frontend && npm run dev
 - `Order.Status` に直接代入する（`transitionTo` を通す。履歴が残らなくなる）
 - 引当だけを行うAPIを公開する（注文と紐づかない在庫が生まれる。[docs/04-api-spec.md](docs/04-api-spec.md) 2章）
 - 個人情報（顧客名・住所・電話番号・メール）をログに出力する（NFR-06）
+- CORS の許可オリジンにワイルドカード（`*`）を使う（認証トークンと個人情報を扱うため）
+- 新しいリクエストヘッダを追加したのに `httpapi/cors.go` の `allowedHeaders` に足さない
+  （プリフライトで弾かれ、ブラウザには `Failed to fetch` としか出ない）
 - 500エラーのレスポンスに内部エラーの詳細を含める
 - 冪等キーが無いときにサーバー側で生成する（[ADR-0003](docs/adr/0003-idempotency.md)）
 - セール期間中にデプロイする（開始48時間前から凍結）

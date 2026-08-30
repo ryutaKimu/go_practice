@@ -45,7 +45,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: httpapi.NewServer(db, cfg.Version).Routes(),
+		Handler: httpapi.NewServer(db, cfg.Version, cfg.AllowedOrigins).Routes(),
 
 		// タイムアウトを明示しないと、遅いクライアントに接続を占有される。
 		ReadHeaderTimeout: 5 * time.Second,
@@ -59,6 +59,9 @@ func run() error {
 		slog.Info("APIサーバを起動しました",
 			slog.String("port", cfg.Port),
 			slog.String("version", cfg.Version),
+			// CORS設定ミスは "Failed to fetch" としてブラウザ側にしか現れず、
+			// サーバーログには痕跡が残らない。起動時に何を許可したかを出しておく。
+			slog.Any("allowed_origins", cfg.AllowedOrigins),
 		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err

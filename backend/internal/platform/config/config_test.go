@@ -67,6 +67,64 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
+	t.Run("既定の許可オリジンはローカルの管理画面", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://localhost/test")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load err = %v", err)
+		}
+
+		if len(cfg.AllowedOrigins) != 1 || cfg.AllowedOrigins[0] != "http://localhost:5173" {
+			t.Errorf("AllowedOrigins = %v, want [http://localhost:5173]", cfg.AllowedOrigins)
+		}
+	})
+
+	t.Run("許可オリジンをカンマ区切りで指定できる", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://localhost/test")
+		t.Setenv("ALLOWED_ORIGINS", "https://admin.minatomart.example, http://localhost:5173")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load err = %v", err)
+		}
+
+		want := []string{"https://admin.minatomart.example", "http://localhost:5173"}
+		if len(cfg.AllowedOrigins) != len(want) {
+			t.Fatalf("AllowedOrigins = %v, want %v", cfg.AllowedOrigins, want)
+		}
+		for i, w := range want {
+			if cfg.AllowedOrigins[i] != w {
+				t.Errorf("AllowedOrigins[%d] = %q, want %q", i, cfg.AllowedOrigins[i], w)
+			}
+		}
+	})
+
+	// 設定ミスをブラウザの "Failed to fetch" で気づくことになるのを避け、起動時に弾く。
+	t.Run("不正な許可オリジンを拒否する", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			value string
+		}{
+			{"ワイルドカード", "*"},
+			{"スキームなし", "localhost:5173"},
+			{"ホストなし", "http://"},
+			{"パス付き", "http://localhost:5173/admin"},
+			{"カンマのみ", ",,"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Setenv("DATABASE_URL", "postgres://localhost/test")
+				t.Setenv("ALLOWED_ORIGINS", tt.value)
+
+				if _, err := Load(); err == nil {
+					t.Fatalf("ALLOWED_ORIGINS=%q でエラーを期待したが nil だった", tt.value)
+				}
+			})
+		}
+	})
+
 	t.Run("不正なタイムアウト値を拒否する", func(t *testing.T) {
 		tests := []struct {
 			name  string
