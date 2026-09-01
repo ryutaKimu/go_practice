@@ -22,7 +22,21 @@
 | なぜその構成なのか | [docs/05-architecture.md](docs/05-architecture.md) |
 | **なぜその判断をしたのか** | [docs/adr/](docs/adr/) |
 | 運用・障害対応・移行 | [docs/06-operations.md](docs/06-operations.md) |
+| チケット単位の詳細設計 | [docs/design/](docs/design/) |
 | 今やるべきこと | [docs/backlog.md](docs/backlog.md) |
+| 日々の進捗と気づき | [docs/progress-log.md](docs/progress-log.md) |
+
+### メモをどこに書くか
+
+| 種類 | 置き場所 | git |
+| --- | --- | --- |
+| 判断・設計（他人が読む前提） | `docs/design/<チケットID>-<要約>.md` | 管理する |
+| 重い設計判断（却下案とその理由まで） | `docs/adr/` | 管理する |
+| 個人の作業メモ（調べ物・思考の断片・試したSQL） | `notes/` | **gitignore** |
+
+`notes/` は自由に書き散らしてよい。ただし**結論が出たものは `docs/` か `docs/adr/` に書き写す。**
+個人メモは引き継ぎ時に失われるため、判断の経緯を残す場所にはしない
+（[docs/06-operations.md](docs/06-operations.md) 6章）。
 
 ## 開発環境
 

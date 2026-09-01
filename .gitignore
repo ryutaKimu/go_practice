@@ -13,6 +13,10 @@ frontend/.vite/
 .env.local
 *.local
 
+# 個人の作業メモ。調べたこと・思考の断片・試したSQLなど。
+# 結論が出たものは docs/ か docs/adr/ に書き写すこと（CLAUDE.md 参照）。
+notes/
+
 # エディタ・OS
 .DS_Store
 .idea/
