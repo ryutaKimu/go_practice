@@ -12,7 +12,7 @@
 | 日時 | RFC 3339、UTC、ミリ秒まで（`2026-06-01T09:30:00.000Z`） |
 | 金額 | 整数の円。`{"amount": 1980, "currency": "JPY"}` |
 | ID | UUID v7（時系列ソート可能なため） |
-| ページング | `?page=1&perPage=50`。レスポンスに `pagination` を含める |
+| ページング | `?page=1&perPage=50`。レスポンスに `pagination` を含める（形式は下記） |
 | バージョニング | URLパス。破壊的変更時のみ `/api/v2` を切る |
 
 ### 状態遷移をどう表現するか
@@ -27,6 +27,28 @@ POST /orders/{id}/ship        出荷完了
 POST /orders/{id}/cancel      キャンセル（reason 必須）
 ```
 
+### ページネーションのレスポンス形式（MIN-011 で決定。以降の一覧APIの前例）
+
+```json
+{
+  "items": [ ... ],
+  "pagination": { "page": 1, "perPage": 50, "total": 123 }
+}
+```
+
+- `total` は必ず返す。オペレーターが総件数を見て絞り込みを追加する使い方をするため
+  （クライアント要望）。COUNT が p95 500ms（NFR-02）を圧迫する場合のみ省略を再相談する
+- 0件は正常系。`200` で空の `items` を返す（`404` は単体取得専用）
+- 共通スキーマは `openapi.yaml` の `Pagination` コンポーネントを参照
+
+### 検索の一致方法（MIN-011 で決定）
+
+| パラメータ | 一致方法 | 理由 |
+| --- | --- | --- |
+| `name`（商品名） | 部分一致 | オペレーターは「バスマット」等の断片で探す。前方一致ではブランド名付き商品が探せない（クライアント要望）。商品数は数千件のため ILIKE で成立する見込み。p95 500ms を超えたら再相談 |
+| `skuCode` | 前方一致 | 業務は伝票からのコピペ（完全一致）で成立するが、前方一致はその上位互換でインデックスも効く |
+| `categoryId` | UUID 完全一致 + **子孫カテゴリを含む** | 「キッチン用品」で配下の「保存容器」等も出るのがオペレーターの期待（クライアント要望）。UUID形式不正は 400、存在しないIDは 200 で0件 |
+
 ## 2. エンドポイント一覧
 
 ### 商品
@@ -39,6 +61,15 @@ POST /orders/{id}/cancel      キャンセル（reason 必須）
 | PATCH | `/api/v1/products/{id}` | 商品更新 | FR-101 | admin |
 | POST | `/api/v1/products/{id}/suspend` | 販売停止 | FR-105 | admin |
 | POST | `/api/v1/products/{id}/skus` | SKU追加 | FR-102 | admin |
+| GET | `/api/v1/categories` | カテゴリ一覧（絞り込みプルダウン用） | FR-107 | operator |
+
+**カテゴリの登録・編集・削除APIは設けない（フェーズ1）。**
+改廃は年数回・担当者限定のため、初期データ移行で投入し以後は運用対応とする
+（[01-requirements.md](01-requirements.md) FR-107 の注記）。
+
+商品一覧（GET /products）は各商品に `hasActiveSku`（販売可能なSKUが1件以上あるか）を返す。
+`status: active` かつ `hasActiveSku: false` の商品に管理画面が「販売可能なSKUなし」警告を出すため
+（O-4 案B。[01-requirements.md](01-requirements.md) 7章）。
 
 ### 在庫
 

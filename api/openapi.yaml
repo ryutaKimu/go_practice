@@ -1,7 +1,7 @@
 openapi: 3.1.0
 
 # API契約の正。設計方針は docs/04-api-spec.md を参照。
-# Sprint 0 時点では、実装済みの監視系と、中核である注文登録のみを定義している。
+# 監視系・注文登録に加え、MIN-011 で商品一覧・カテゴリ一覧を定義済み。
 # 残りは各チケットの実装時にこのファイルへ追記する。
 
 info:
@@ -18,6 +18,8 @@ servers:
 tags:
   - name: monitoring
     description: 死活監視。認証不要
+  - name: products
+    description: 商品
   - name: orders
     description: 注文
   - name: inventory
@@ -55,6 +57,76 @@ paths:
           description: 受付可能
         "503":
           description: 依存先に到達できない
+
+  /api/v1/products:
+    get:
+      tags: [products]
+      summary: 商品一覧・検索
+      description: |
+        商品名、SKUコード、カテゴリで検索し、ページングして返す(FR-103)
+        検索方法は下記の通り。
+        商品名: 部分一致
+        SKUコード: 前方一致
+      parameters:
+        - name: name
+          in: query
+          required: false
+          description: 商品名。部分一致。
+          schema: { type: string }
+          example: Yシャツ
+        - name: skuCode
+          in: query
+          required: false
+          description: SKUコード。前方一致
+          schema: { type: string }
+          example: MM-TOWEL
+        - name: categoryId
+          in: query
+          required: false
+          description: カテゴリID。指定カテゴリの子孫カテゴリに属する商品も含む。UUID形式でない場合は 400。
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: |
+            検索結果。存在しないカテゴリIDや、1件もヒットしない条件でも200で0件返す。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, pagination]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProductSummary" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/categories:
+    get:
+      tags: [products]
+      summary: カテゴリ一覧
+      description: |
+        商品検索の絞り込みプルダウン用に全カテゴリを返す（FR-107）。
+        総数は100件弱のためページングしない。階層はフラットな配列 + parentId で表現し、
+        ツリー構築はクライアント側で行う。
+
+        登録・編集・削除のAPIはフェーズ1では提供しない。
+        改廃は年数回のため初期データ移行と運用対応で賄う（docs/01-requirements.md FR-107）。
+      responses:
+        "200":
+          description: 全カテゴリ
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
 
   /api/v1/orders:
     post:
@@ -172,8 +244,63 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: 職員はJWT、外部システムはAPIキーを同じヘッダで送る。
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: ページ番号(1始まり)
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: perPage
+      in: query
+      required: false
+      description: 1ページあたりの件数。
+      schema: { type: integer, minimum: 1, maximum: 50, default: 50 }
 
   schemas:
+    Pagination:
+      type: object
+      description: |
+        一覧API共通のページング情報（MIN-011 で決定。以降の一覧APIもこの形式に従う）。
+        total は検索条件適用後の総件数。オペレーターが絞り込みの追加要否を判断するために必ず返す。
+      required: [page, perPage, total]
+      properties:
+        page: { type: integer, example: 1 }
+        perPage: { type: integer, example: 50 }
+        total: { type: integer, example: 123 }
+    ProductSummary:
+      type: object
+      description: 商品一覧の1行。description・価格・SKU・在庫は返さない（詳細API＝FR-104の責務）。
+      required: [id, name, status, categoryName, hasActiveSku, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 詳細画面への遷移キー。
+        name: { type: string, example: minato 珪藻土バスマット }
+        status:
+          type: string
+          enum: [active, suspended]
+        categoryName: { type: string, example: バス・トイレタリー }
+        hasActiveSku:
+          type: boolean
+          description: |
+            販売可能な（active な）SKUが1件以上あるか。
+            status が active でこれが false の商品に、管理画面は「販売可能なSKUなし」警告を出す（O-4 案B。docs/01-requirements.md 7章）。
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Category:
+      type: object
+      required: [id, name, parentId]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: キッチン用品 }
+        parentId:
+          type: [string, "null"]
+          format: uuid
+          description: 親カテゴリID。ルートカテゴリは null。
     Money:
       type: object
       description: 金額。日本円のみのため amount は「円」の整数（docs/03-erd.md 2.1）。
