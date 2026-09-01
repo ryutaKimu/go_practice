@@ -47,6 +47,20 @@ func NewProduct(id, name, description, categoryID string,
 		return nil, newValidationError("name", "商品名が空白です")
 	}
 
+	for i, s := range skus {
+		// 空コードを許すと CanOrder("") が意図しないSKUに当たる
+		if s.Code == "" {
+			return nil, newValidationError("skus", "SKUコードは必須です")
+		}
+		// SKUStatus のゼロ値 "" のままだと CanOrder が常に false になる。
+		// 呼び出し側に必須指定させる案もあったが、skus.status の
+		// DEFAULT 'active'（migrations/000001_init_schema.up.sql）に揃えて
+		// DBとドメインで同じ既定値を持つ形にした。
+		if s.Status == "" {
+			skus[i].Status = SKUStatusActive
+		}
+	}
+
 	return &Product{
 		ID:          id,
 		Name:        name,
