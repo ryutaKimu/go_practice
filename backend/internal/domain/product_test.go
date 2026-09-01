@@ -50,22 +50,68 @@ func TestNewProduct_作成直後は販売中(t *testing.T) {
 }
 
 func TestNewProduct_skuステータスが未設定ならデフォルトでactiveになる(t *testing.T) {
-	skus := []SKU{{ID: "sku-1", Code: "MM-SHIRT-BL-M", Status: ""}}
+	// 2件目を未設定にする。1件だと skus[0] 固定で補完する誤実装でも通ってしまう
+	skus := []SKU{
+		{ID: "sku-1", Code: "MM-SHIRT-BL-M", Status: SKUStatusActive},
+		{ID: "sku-2", Code: "MM-SHIRT-BL-L", Status: ""},
+	}
 	p, err := NewProduct("product-1", "Y-シャツ", "テストシャツです", "car-1", skus)
 	if err != nil {
 		t.Fatalf("NewProduct() err = %v, want nil", err)
 	}
-	if !p.CanOrder("MM-SHIRT-BL-M") {
+	if !p.CanOrder("MM-SHIRT-BL-L") {
 		t.Error("ステータス未設定のSKUが注文不可になっている")
 	}
 }
 
 func TestNewProduct_skuコードが空なら作成できない(t *testing.T) {
-	skus := []SKU{{ID: "sku-1", Code: "", Status: ""}}
+	// 2件目を空にする。先頭だけ検査する誤実装を落とすため
+	skus := []SKU{
+		{ID: "sku-1", Code: "MM-SHIRT-BL-M", Status: SKUStatusActive},
+		{ID: "sku-2", Code: "", Status: ""},
+	}
 	_, err := NewProduct("product-1", "Y-シャツ", "テストシャツです", "car-1", skus)
 
 	if !errors.Is(err, ErrValidation) {
 		t.Fatalf("err = %v, want ErrValidation", err)
+	}
+}
+
+func TestNewProduct_skuコードが重複していたら作成できない(t *testing.T) {
+	// 重複を許すと CanOrder がスライスの順序次第で違う答えを返す
+	skus := []SKU{
+		{ID: "sku-1", Code: "MM-SHIRT-BL-M", Status: SKUStatusSuspended},
+		{ID: "sku-2", Code: "MM-SHIRT-BL-M", Status: SKUStatusActive},
+	}
+	_, err := NewProduct("product-1", "Y-シャツ", "テストシャツです", "car-1", skus)
+
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("err = %v, want ErrValidation", err)
+	}
+}
+
+func TestNewProduct_価格が負なら作成できない(t *testing.T) {
+	skus := []SKU{{ID: "sku-1", Code: "MM-SHIRT-BL-M", Price: JPY(-1), Status: SKUStatusActive}}
+	_, err := NewProduct("product-1", "Y-シャツ", "テストシャツです", "car-1", skus)
+
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("err = %v, want ErrValidation", err)
+	}
+}
+
+func TestNewProduct_生成後に渡したスライスを書き換えても影響しない(t *testing.T) {
+	// 引数のスライスと内部状態が同じ配列を共有していると、
+	// NewProduct の検査を迂回して不正な状態を作れてしまう
+	skus := []SKU{{ID: "sku-1", Code: "MM-SHIRT-BL-M", Status: SKUStatusActive}}
+	p, err := NewProduct("product-1", "Y-シャツ", "テストシャツです", "car-1", skus)
+	if err != nil {
+		t.Fatalf("NewProduct() err = %v, want nil", err)
+	}
+
+	skus[0].Status = SKUStatusSuspended
+
+	if !p.CanOrder("MM-SHIRT-BL-M") {
+		t.Error("呼び出し側のスライスの書き換えが Product に波及している")
 	}
 }
 

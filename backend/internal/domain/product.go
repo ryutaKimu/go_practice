@@ -1,5 +1,7 @@
 package domain
 
+import "slices"
+
 type SKUStatus string
 type ProductStatus string
 
@@ -47,11 +49,30 @@ func NewProduct(id, name, description, categoryID string,
 		return nil, newValidationError("name", "商品名が空白です")
 	}
 
+	// 呼び出し側のスライスをそのまま保持すると、生成後に外から要素を
+	// 書き換えられ、ここでの検査を迂回できてしまうため複製する。
+	skus = slices.Clone(skus)
+
+	// SKUコードは全体で一意（docs/02-domain-model.md 2章、skus.code の UNIQUE 制約）。
+	// 同一商品内の重複だけでもここで弾かないと、CanOrder が
+	// スライスの順序次第で違う答えを返す。
+	seen := make(map[string]struct{}, len(skus))
+
 	for i, s := range skus {
 		// 空コードを許すと CanOrder("") が意図しないSKUに当たる
 		if s.Code == "" {
 			return nil, newValidationError("skus", "SKUコードは必須です")
 		}
+		if _, ok := seen[s.Code]; ok {
+			return nil, newValidationError("skus", "SKUコードが重複しています: "+s.Code)
+		}
+		seen[s.Code] = struct{}{}
+
+		// skus.price_amount の CHECK (price_amount >= 0) に対応
+		if s.Price.Amount < 0 {
+			return nil, newValidationError("skus", "価格は0以上である必要があります")
+		}
+
 		// SKUStatus のゼロ値 "" のままだと CanOrder が常に false になる。
 		// 呼び出し側に必須指定させる案もあったが、skus.status の
 		// DEFAULT 'active'（migrations/000001_init_schema.up.sql）に揃えて
@@ -71,6 +92,10 @@ func NewProduct(id, name, description, categoryID string,
 	}, nil
 }
 
+// Suspend は商品を販売停止にする。配下SKUの status は書き換えず、
+// 商品停止の波及は CanOrder の判定で表現する。SKU側を一括更新すると、
+// 停止前にSKU単体で止めていたものと区別がつかなくなるため
+// （docs/02-domain-model.md 2章）。
 func (p *Product) Suspend() {
 	p.Status = ProductStatusSuspended
 }
