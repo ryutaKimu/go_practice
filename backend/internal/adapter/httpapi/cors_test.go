@@ -10,7 +10,8 @@ import (
 const devOrigin = "http://localhost:5173"
 
 func corsServer() http.Handler {
-	return NewServer(stubDB{}, "test", []string{devOrigin}).Routes()
+	// MIN-011 usecase実装後に差し替え
+	return NewServer(stubDB{}, "test", []string{devOrigin}, nil).Routes()
 }
 
 // このテストが無かったために CORS の実装漏れに気づけなかった。

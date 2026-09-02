@@ -42,10 +42,10 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-
 	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: httpapi.NewServer(db, cfg.Version, cfg.AllowedOrigins).Routes(),
+		Addr: ":" + cfg.Port,
+		// Todo: MIN-011 usecase実装後に差し替え
+		Handler: httpapi.NewServer(db, cfg.Version, cfg.AllowedOrigins, nil).Routes(),
 
 		// タイムアウトを明示しないと、遅いクライアントに接続を占有される。
 		ReadHeaderTimeout: 5 * time.Second,

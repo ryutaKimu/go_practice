@@ -15,7 +15,8 @@ func (s stubDB) Ping(context.Context) error { return s.err }
 
 func TestHealthz_DBが落ちていても200を返す(t *testing.T) {
 	// liveness で依存先を見ない理由: DB障害でタスクを再起動しても復旧しないため。
-	srv := NewServer(stubDB{err: errors.New("connection refused")}, "test", nil)
+	// MIN-011 usecase実装後に差し替え
+	srv := NewServer(stubDB{err: errors.New("connection refused")}, "test", nil, nil)
 	rec := httptest.NewRecorder()
 
 	srv.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -37,7 +38,8 @@ func TestReadyz(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := NewServer(stubDB{err: tt.dbErr}, "test", nil)
+			// MIN-011 usecase実装後に差し替え
+			srv := NewServer(stubDB{err: tt.dbErr}, "test", nil, nil)
 			rec := httptest.NewRecorder()
 
 			srv.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
@@ -50,7 +52,8 @@ func TestReadyz(t *testing.T) {
 }
 
 func TestRequestID(t *testing.T) {
-	srv := NewServer(stubDB{}, "test", nil)
+	// MIN-011 usecase実装後に差し替え
+	srv := NewServer(stubDB{}, "test", nil, nil)
 
 	t.Run("未指定なら生成される", func(t *testing.T) {
 		rec := httptest.NewRecorder()

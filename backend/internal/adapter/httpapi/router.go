@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"net/http"
+
+	"github.com/minatomart/inventory-api/internal/usecase"
 )
 
 // HealthChecker は /readyz が確認する依存先。今はDBのみ。
@@ -11,16 +13,18 @@ type HealthChecker interface {
 }
 
 type Server struct {
-	db      HealthChecker
-	version string
-	cors    *CORS
+	db       HealthChecker
+	version  string
+	cors     *CORS
+	products usecase.ProductUsecase
 }
 
-func NewServer(db HealthChecker, version string, allowedOrigins []string) *Server {
+func NewServer(db HealthChecker, version string, allowedOrigins []string, products usecase.ProductUsecase) *Server {
 	return &Server{
-		db:      db,
-		version: version,
-		cors:    NewCORS(allowedOrigins),
+		db:       db,
+		version:  version,
+		cors:     NewCORS(allowedOrigins),
+		products: products,
 	}
 }
 
@@ -35,6 +39,7 @@ func (s *Server) Routes() http.Handler {
 
 	// TODO(MIN-011以降): /api/v1 配下の業務エンドポイントを追加する。
 	// 一覧は docs/04-api-spec.md 2章。
+	mux.HandleFunc("GET /api/v1/products", s.handleListProducts)
 
 	// CORS は RequestID より内側に置く。プリフライトにも request_id を振って
 	// ログに残すため（プリフライトが弾かれた場合の調査に要る）。
