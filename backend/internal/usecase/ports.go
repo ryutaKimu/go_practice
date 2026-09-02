@@ -5,3 +5,7 @@ import "context"
 type ProductUsecase interface {
 	ListProducts(ctx context.Context, input ProductListInput) (ProductListOutput, error)
 }
+
+type ProductRepository interface {
+	SearchProducts(ctx context.Context, input ProductListInput) ([]ProductSummary, int, error)
+}
