@@ -32,6 +32,7 @@ type ProductSummary struct {
 	UpdatedAt    time.Time
 }
 
+// ProductListInput は一覧検索の絞り込み条件。 ゼロ値は「絞り込まない」を意味する。
 type ProductListInput struct {
 	Name       string
 	SKUCode    string

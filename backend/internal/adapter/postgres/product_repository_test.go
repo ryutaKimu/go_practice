@@ -85,5 +85,9 @@ func Test商品一覧が全件とカテゴリ名を返す(test *testing.T) {
 		if i.CategoryName == "" {
 			test.Fatalf("カテゴリー名が空:商品ID=%s", i.ID)
 		}
+
+		if i.Status == "" {
+			test.Fatalf("販売ステータスが空:商品ID=%s", i.ID)
+		}
 	}
 }
