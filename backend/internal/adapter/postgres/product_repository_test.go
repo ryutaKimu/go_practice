@@ -91,3 +91,78 @@ func Test商品一覧が全件とカテゴリ名を返す(test *testing.T) {
 		}
 	}
 }
+
+func Test商品検索が絞り込めているか(t *testing.T) {
+	repo := NewProductRepository(testDB)
+	var categoryId string
+	err := testDB.Pool().QueryRow(context.Background(), `INSERT INTO categories (name) VALUES ($1) RETURNING id`, "テスト用カテゴリ").Scan(&categoryId)
+	if err != nil {
+		t.Fatalf("読み込み失敗:%v", err)
+	}
+
+	var productId string
+	err = testDB.Pool().QueryRow(context.Background(), `INSERT INTO products (name, category_id) VALUES ($1, $2) RETURNING id`,
+		"ふわふわバスタオル", categoryId).Scan(&productId)
+	if err != nil {
+		t.Fatalf("商品INSERT失敗(%s):%v", "ふわふわバスタオル", err)
+	}
+	_, err = testDB.Pool().Exec(context.Background(), `INSERT INTO products (name, category_id) VALUES ($1, $2)`,
+		"マグカップ", categoryId)
+	if err != nil {
+		t.Fatalf("商品INSERT失敗(%s):%v", "マグカップ", err)
+	}
+
+	_, err = testDB.Pool().Exec(context.Background(),
+		`INSERT INTO skus (product_id, code, price_amount) VALUES ($1, $2, $3)`,
+		productId, "TEST-TOWEL", 1500)
+
+	if err != nil {
+		t.Fatalf("SKU INSERT失敗(%s):%v", "TEST-TOWEL", err)
+	}
+
+	t.Cleanup(func() {
+		testDB.Pool().Exec(context.Background(),
+			`DELETE FROM products WHERE category_id = $1`, categoryId)
+		testDB.Pool().Exec(context.Background(),
+			`DELETE FROM categories WHERE id = $1`, categoryId)
+	})
+
+	tests := []struct {
+		testCase string
+		input    uc.ProductListInput
+		wantHit  []string
+		wantMiss []string
+	}{
+		{testCase: "商品名検索", input: uc.ProductListInput{Name: "タオル", Pagination: uc.Pagination{Page: 1, PerPage: 50}}, wantHit: []string{"ふわふわバスタオル"}, wantMiss: []string{"マグカップ"}},
+		{testCase: "SKUコード検索", input: uc.ProductListInput{Name: "", SKUCode: "TEST-TOWEL", Pagination: uc.Pagination{Page: 1, PerPage: 50}}, wantHit: []string{"ふわふわバスタオル"}, wantMiss: []string{"マグカップ"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.testCase, func(t *testing.T) {
+			items, _, err := repo.SearchProducts(context.Background(), tt.input)
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			for _, name := range tt.wantHit {
+				if !containsProduct(items, name) {
+					t.Errorf("ヒットすべき商品がいない: %s", name)
+				}
+			}
+			for _, name := range tt.wantMiss {
+				if containsProduct(items, name) {
+					t.Errorf("絞り込みから漏れている: %s", name)
+				}
+			}
+		})
+	}
+}
+
+func containsProduct(items []uc.ProductSummary, name string) bool {
+	for _, item := range items {
+		if item.Name == name {
+			return true
+		}
+	}
+	return false
+}

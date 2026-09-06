@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	uc "github.com/minatomart/inventory-api/internal/usecase"
 )
@@ -20,7 +21,8 @@ func NewProductRepository(db *DB) *productRepository {
 }
 
 func (r *productRepository) SearchProducts(ctx context.Context, input uc.ProductListInput) ([]uc.ProductSummary, int, error) {
-	q := `
+	whereSQL, args := buildProductQueryWhere(input)
+	baseSelect := `
 	SELECT
 		products.id,
 		products.name,
@@ -30,12 +32,19 @@ func (r *productRepository) SearchProducts(ctx context.Context, input uc.Product
 		categories.name
 	FROM products
 	INNER JOIN categories ON products.category_id = categories.id
-	ORDER BY products.created_at DESC, products.id
-	LIMIT $1 OFFSET $2
 	`
+	countQ := `SELECT COUNT(*) FROM products ` + whereSQL
+	var total int
+	err := r.DB.Pool().QueryRow(ctx, countQ, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count products data: %w", err)
+	}
+
 	page := input.Pagination.Page
 	perPage := input.Pagination.PerPage
-	rows, err := r.DB.Pool().Query(ctx, q, perPage, (page-1)*perPage)
+	args = append(args, perPage, (page-1)*perPage)
+	q := baseSelect + whereSQL + fmt.Sprintf(" ORDER BY products.created_at DESC, products.id LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	rows, err := r.DB.Pool().Query(ctx, q, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("fetch products data: %w", err)
 	}
@@ -51,11 +60,25 @@ func (r *productRepository) SearchProducts(ctx context.Context, input uc.Product
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("fetch products data: %w", err)
 	}
-	var total int
-	err = r.DB.Pool().QueryRow(ctx, "SELECT count(*) from products").Scan(&total)
-	if err != nil {
-		return nil, 0, fmt.Errorf("count products data: %w", err)
+	return items, total, nil
+}
+
+func buildProductQueryWhere(input uc.ProductListInput) (string, []any) {
+	where := []string{}
+	args := []any{}
+
+	if input.Name != "" {
+		args = append(args, "%"+input.Name+"%")
+		where = append(where, fmt.Sprintf("products.name ILIKE $%d", len(args)))
 	}
 
-	return items, total, nil
+	if input.SKUCode != "" {
+		args = append(args, input.SKUCode+"%")
+		where = append(where, fmt.Sprintf("EXISTS(SELECT 1 FROM skus WHERE skus.product_id = products.id AND skus.code LIKE $%d)", len(args)))
+	}
+
+	if len(where) == 0 {
+		return "", args
+	}
+	return "WHERE " + strings.Join(where, " AND "), args
 }
