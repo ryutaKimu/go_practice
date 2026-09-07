@@ -158,6 +158,84 @@ func Test商品検索が絞り込めているか(t *testing.T) {
 	}
 }
 
+func Test全SKUが停止中の商品はhasActiveSkuがfalseになる(t *testing.T) {
+	repo := NewProductRepository(testDB)
+
+	ctx := context.Background()
+
+	var categoryId string
+	err := testDB.Pool().QueryRow(ctx, `INSERT INTO categories (name) VALUES ($1) RETURNING id`, "テスト用カテゴリ").Scan(&categoryId)
+	if err != nil {
+		t.Fatalf("カテゴリINSERT失敗:%v", err)
+	}
+
+	t.Cleanup(func() {
+		testDB.Pool().Exec(ctx, `DELETE FROM products WHERE category_id = $1`, categoryId)
+		testDB.Pool().Exec(ctx, `DELETE FROM categories WHERE id = $1`, categoryId)
+	})
+
+	// hasActiveSku が false になる経路は「全SKUが停止中」と「SKUが1件も無い」の2通りある。
+	// SQLの書き方によっては後者だけ取りこぼすため、両方を用意する。
+	fixtures := []struct {
+		productName string
+		skuCode     string // 空文字ならSKUを作らない
+		skuStatus   string
+	}{
+		{"販売中タオル", "TEST-ACTIVE-001", "active"},
+		{"全停止タオル", "TEST-SUSPENDED-001", "suspended"},
+		{"SKUなしタオル", "", ""},
+	}
+
+	for _, f := range fixtures {
+		var productId string
+		err := testDB.Pool().QueryRow(ctx,
+			`INSERT INTO products (name, category_id) VALUES ($1, $2) RETURNING id`,
+			f.productName, categoryId).Scan(&productId)
+		if err != nil {
+			t.Fatalf("商品INSERT失敗(%s):%v", f.productName, err)
+		}
+
+		if f.skuCode == "" {
+			continue
+		}
+
+		_, err = testDB.Pool().Exec(ctx,
+			`INSERT INTO skus (product_id, code, price_amount, status) VALUES ($1, $2, $3, $4)`,
+			productId, f.skuCode, 1500, f.skuStatus)
+		if err != nil {
+			t.Fatalf("SKU INSERT失敗(%s):%v", f.skuCode, err)
+		}
+	}
+
+	tests := []struct {
+		testCase         string
+		productName      string // 結果の中から探す商品
+		wantHasActiveSku bool
+	}{
+		{"activeなSKUを持つ", "販売中タオル", true},
+		{"全SKUが停止中", "全停止タオル", false},
+		{"SKUを持たない", "SKUなしタオル", false},
+	}
+
+	input := uc.ProductListInput{Name: "タオル", Pagination: uc.Pagination{Page: 1, PerPage: 50}}
+	for _, tt := range tests {
+		t.Run(tt.testCase, func(t *testing.T) {
+			items, _, err := repo.SearchProducts(context.Background(), input)
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+			p, found := findProduct(items, tt.productName)
+			if !found {
+				t.Fatalf("商品が結果に含まれていない: %s", tt.productName)
+			}
+			if p.HasActiveSku != tt.wantHasActiveSku {
+				t.Errorf("hasActiveSku = %v, want %v", p.HasActiveSku, tt.wantHasActiveSku)
+			}
+		})
+	}
+
+}
+
 func containsProduct(items []uc.ProductSummary, name string) bool {
 	for _, item := range items {
 		if item.Name == name {
@@ -165,4 +243,13 @@ func containsProduct(items []uc.ProductSummary, name string) bool {
 		}
 	}
 	return false
+}
+
+func findProduct(items []uc.ProductSummary, name string) (uc.ProductSummary, bool) {
+	for _, item := range items {
+		if item.Name == name {
+			return item, true
+		}
+	}
+	return uc.ProductSummary{}, false
 }

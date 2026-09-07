@@ -22,6 +22,7 @@ func NewProductRepository(db *DB) *productRepository {
 
 func (r *productRepository) SearchProducts(ctx context.Context, input uc.ProductListInput) ([]uc.ProductSummary, int, error) {
 	whereSQL, args := buildProductQueryWhere(input)
+	// O-4案B: 全SKU停止中の商品も一覧に残し、警告表示用のフラグとして返す（WHEREに移すと商品が消える）
 	baseSelect := `
 	SELECT
 		products.id,
@@ -29,7 +30,8 @@ func (r *productRepository) SearchProducts(ctx context.Context, input uc.Product
 		products.status,
 		products.created_at,
 		products.updated_at,
-		categories.name
+		categories.name,
+		EXISTS (SELECT 1 FROM skus WHERE skus.product_id = products.id AND skus.status = 'active') AS has_active_sku
 	FROM products
 	INNER JOIN categories ON products.category_id = categories.id
 	`
@@ -43,6 +45,7 @@ func (r *productRepository) SearchProducts(ctx context.Context, input uc.Product
 	page := input.Pagination.Page
 	perPage := input.Pagination.PerPage
 	args = append(args, perPage, (page-1)*perPage)
+	//同時刻の場合、product.idで優先順位をつける。
 	q := baseSelect + whereSQL + fmt.Sprintf(" ORDER BY products.created_at DESC, products.id LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := r.DB.Pool().Query(ctx, q, args...)
 	if err != nil {
@@ -52,7 +55,7 @@ func (r *productRepository) SearchProducts(ctx context.Context, input uc.Product
 	var items []uc.ProductSummary
 	for rows.Next() {
 		var p uc.ProductSummary
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.CreatedAt, &p.UpdatedAt, &p.CategoryName); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &p.CreatedAt, &p.UpdatedAt, &p.CategoryName, &p.HasActiveSku); err != nil {
 			return nil, 0, fmt.Errorf("fetch products data: %w", err)
 		}
 		items = append(items, p)
