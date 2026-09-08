@@ -236,6 +236,99 @@ func Test全SKUが停止中の商品はhasActiveSkuがfalseになる(t *testing.
 
 }
 
+func Test指定したカテゴリの商品を取得する(t *testing.T) {
+	repo := NewProductRepository(testDB)
+
+	ctx := context.Background()
+
+	var clothingId string
+	var shirtId string
+	var poloId string
+	var kitchenId string
+
+	err := testDB.Pool().QueryRow(ctx, `INSERT INTO categories (name) VALUES ($1) RETURNING id`, "衣類").Scan(&clothingId)
+	if err != nil {
+		t.Fatalf("カテゴリ1 INSERT失敗:%v", err)
+	}
+
+	err = testDB.Pool().QueryRow(ctx, `INSERT INTO categories (name, parent_id) VALUES ($1, $2) RETURNING id`, "シャツ", clothingId).Scan(&shirtId)
+	if err != nil {
+		t.Fatalf("カテゴリ2 INSERT失敗:%v", err)
+	}
+
+	err = testDB.Pool().QueryRow(ctx, `INSERT INTO categories (name, parent_id) VALUES ($1, $2) RETURNING id`, "ポロシャツ", shirtId).Scan(&poloId)
+	if err != nil {
+		t.Fatalf("カテゴリ3 INSERT失敗:%v", err)
+	}
+
+	err = testDB.Pool().QueryRow(ctx,
+		`INSERT INTO categories (name) VALUES ($1) RETURNING id`, "キッチン用品").Scan(&kitchenId)
+	if err != nil {
+		t.Fatalf("キッチンカテゴリ INSERT失敗(%s):%v", "キッチン用品", err)
+	}
+
+	_, err = testDB.Pool().Exec(ctx, `INSERT INTO products (name, category_id) VALUES ($1, $2)`,
+		"Test服", clothingId)
+	if err != nil {
+		t.Fatalf("衣類 INSERT失敗(%s):%v", "Test服", err)
+	}
+
+	_, err = testDB.Pool().Exec(ctx, `INSERT INTO products (name, category_id) VALUES ($1, $2)`,
+		"Testシャツ", shirtId)
+	if err != nil {
+		t.Fatalf("Testシャツ INSERT失敗(%s):%v", "Testシャツ", err)
+	}
+
+	_, err = testDB.Pool().Exec(ctx, `INSERT INTO products (name, category_id) VALUES ($1, $2)`,
+		"TESTポロシャツ", poloId)
+	if err != nil {
+		t.Fatalf("TESTポロシャツ INSERT失敗(%s):%v", "TESTポロシャツ", err)
+	}
+
+	_, err = testDB.Pool().Exec(ctx,
+		`INSERT INTO products (name, category_id) VALUES ($1, $2)`, "マグカップ", kitchenId)
+
+	if err != nil {
+		t.Fatalf("マグカップ INSERT失敗(%s):%v", "マグカップ", err)
+	}
+
+	_, err = testDB.Pool().Exec(ctx, `INSERT INTO products (name, category_id) VALUES ($1, $2)`,
+		"リング", kitchenId)
+	if err != nil {
+		t.Fatalf("リング INSERT失敗(%s):%v", "リング", err)
+	}
+
+	_, err = testDB.Pool().Exec(ctx, `INSERT INTO products (name, category_id) VALUES ($1, $2)`,
+		"雑貨", kitchenId)
+	if err != nil {
+		t.Fatalf("雑貨 INSERT失敗(%s):%v", "雑貨", err)
+	}
+
+	t.Cleanup(func() {
+		testDB.Pool().Exec(ctx, `DELETE FROM products WHERE category_id in ($1, $2, $3)`, poloId, shirtId, clothingId)
+	})
+
+	wantHit := []string{"Test服", "Testシャツ", "TESTポロシャツ"}
+	wantMiss := []string{"マグカップ", "リング", "雑貨"}
+	input := uc.ProductListInput{CategoryID: clothingId, Pagination: uc.Pagination{Page: 1, PerPage: 50}}
+	got, _, err := repo.SearchProducts(ctx, input)
+	if err != nil {
+		t.Fatalf("予期しないエラー: %v", err)
+	}
+
+	for _, hit := range wantHit {
+		if !containsProduct(got, hit) {
+			t.Errorf("ヒットすべき商品がない:%s", hit)
+		}
+	}
+
+	for _, miss := range wantMiss {
+		if containsProduct(got, miss) {
+			t.Errorf("ヒットすべきではない商品:%s", miss)
+		}
+	}
+}
+
 func containsProduct(items []uc.ProductSummary, name string) bool {
 	for _, item := range items {
 		if item.Name == name {

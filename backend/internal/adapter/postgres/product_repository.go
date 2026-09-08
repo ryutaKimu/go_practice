@@ -80,6 +80,18 @@ func buildProductQueryWhere(input uc.ProductListInput) (string, []any) {
 		where = append(where, fmt.Sprintf("EXISTS(SELECT 1 FROM skus WHERE skus.product_id = products.id AND skus.code LIKE $%d)", len(args)))
 	}
 
+	if input.CategoryID != "" {
+		args = append(args, input.CategoryID)
+		where = append(where, fmt.Sprintf(`products.category_id IN (
+			WITH RECURSIVE tree AS (
+			  SELECT id FROM categories WHERE id = $%d
+			  UNION ALL
+			  SELECT c.id FROM categories c JOIN tree ON c.parent_id = tree.id
+			)
+			SELECT id FROM tree
+			)`, len(args)))
+	}
+
 	if len(where) == 0 {
 		return "", args
 	}
